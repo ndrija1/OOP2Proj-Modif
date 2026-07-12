@@ -1,0 +1,104 @@
+@startuml Air Traffic Simulator - architecture
+' Render: paste into https://www.plantuml.com/plantuml  or the IntelliJ PlantUML plugin.
+' Shows the LAYERS and the three communication patterns, not every field.
+
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+
+package app {
+  class Main
+  class SelfTest
+  class W3Test
+}
+
+package gui {
+  class MainFrame
+  class MapTab
+  class MapPanel
+  class AirportsPanel
+  class FlightsPanel
+  class InactivityWarningDialog
+}
+
+package logic {
+  class SimulationEngine {
+    - state
+    - simMinutes
+    + start() / pause() / resume() / reset()
+    + getPlaneViews() : List<PlaneView>
+  }
+  class ActivePlane {
+    + updatePosition(simMinutes)
+    + redirect(target, now)
+  }
+  class ScheduledFlight
+  class DepartureScheduler
+  class InactivityMonitor
+  class "SimulationEngine.PlaneView" as PlaneView <<snapshot>>
+  class "SimulationEngine.StormView" as StormView <<snapshot>>
+}
+
+package model {
+  class World {
+    + addAirport() / addFlight()
+    + replaceAll()
+    + addListener(Listener)
+  }
+  interface "World.Listener" as WorldListener
+  class Airport <<immutable>>
+  class Flight <<immutable>>
+  class ValidationException
+}
+
+package io {
+  class FileService
+  class CsvCodec
+  class JsonCodec
+}
+
+package util {
+  class Log
+  class TimeUtil
+  class Json
+  class Mods
+}
+
+' ---- dependencies point DOWNWARD only ----
+MainFrame *--> World
+MainFrame *--> SimulationEngine
+MainFrame *--> InactivityMonitor
+MainFrame *--> MapTab
+MapTab *--> MapPanel
+MapPanel ..> SimulationEngine : reads snapshots
+SimulationEngine --> DepartureScheduler : schedule() at start
+SimulationEngine "1" *--> "many" ActivePlane
+DepartureScheduler --> ScheduledFlight
+ActivePlane --> ScheduledFlight
+SimulationEngine ..> PlaneView : hands COPIES to gui
+World *--> Airport
+World *--> Flight
+FileService --> CsvCodec
+FileService --> JsonCodec
+io ..> model : builds Airport/Flight
+JsonCodec ..> Json
+
+' ---- the three patterns (dashed = observer/callback) ----
+World o.. WorldListener : notifies
+AirportsPanel ..|> WorldListener
+FlightsPanel ..|> WorldListener
+MapTab ..|> WorldListener
+MapPanel ..|> WorldListener
+
+note bottom of logic
+  Pattern 2 (engine callback): SimulationEngine.Listener
+  is implemented by MainFrame via a lambda that hops to
+  the EDT with SwingUtilities.invokeLater.
+end note
+
+note right of PlaneView
+  Thread-safety boundary: the engine runs on a daemon
+  timer thread; the GUI only ever sees immutable COPIES
+  (PlaneView / StormView), never live ActivePlane objects.
+end note
+
+@enduml
